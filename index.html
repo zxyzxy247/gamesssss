@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全能小游戏平台 - 修复版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f3f4f6; user-select: none; }
+        .game-container { display: none; height: calc(100vh - 64px); overflow: hidden; position: relative; }
+        .game-container.active { display: flex; flex-direction: column; }
+        
+        /* 射击游戏 */
+        #shooter-canvas { background: #1a1a2e; cursor: crosshair; width: 100%; height: 100%; touch-action: none; }
+        
+        /* 24点 */
+        .card { 
+            width: 80px; height: 110px; background: white; border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; 
+            font-size: 2rem; font-weight: bold; cursor: pointer; transition: all 0.2s; 
+            border: 2px solid transparent; position: relative;
+        }
+        .card:hover { transform: translateY(-5px); }
+        .card.selected { border-color: #3b82f6; background: #eff6ff; transform: translateY(-10px); box-shadow: 0 10px 15px rgba(59, 130, 246, 0.3); }
+        .card.merged { animation: popIn 0.3s ease-out; }
+        @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        /* 方块世界 */
+        #voxel-canvas { background: #87CEEB; cursor: crosshair; image-rendering: pixelated; width: 100%; height: 100%; }
+        .toolbar-item { width: 40px; height: 40px; border: 2px solid #ccc; cursor: pointer; transition: all 0.2s; border-radius: 4px; }
+        .toolbar-item.active { border-color: #3b82f6; transform: scale(1.1); box-shadow: 0 0 10px rgba(59,130,246,0.5); }
+
+        /* 计算器 */
+        .calc-btn { transition: all 0.1s; active: scale-95; }
+        .calc-btn:active { transform: scale(0.92); }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- 导航 -->
+    <header class="bg-white shadow-md z-20 h-16 flex items-center justify-between px-6">
+        <div class="flex items-center space-x-2 cursor-pointer" onclick="switchGame('home')">
+            <i class="fa-solid fa-gamepad text-indigo-600 text-2xl"></i>
+            <span class="font-bold text-xl text-gray-800">MiniGame Hub</span>
+        </div>
+        <nav class="hidden md:flex space-x-6">
+            <button onclick="switchGame('shooter')" class="text-gray-600 hover:text-red-500 font-medium"><i class="fa-solid fa-rocket mr-1"></i> 射击</button>
+            <button onclick="switchGame('math24')" class="text-gray-600 hover:text-blue-500 font-medium"><i class="fa-solid fa-brain mr-1"></i> 24点</button>
+            <button onclick="switchGame('calculator')" class="text-gray-600 hover:text-green-500 font-medium"><i class="fa-solid fa-calculator mr-1"></i> 计算器</button>
+            <button onclick="switchGame('voxel')" class="text-gray-600 hover:text-yellow-500 font-medium"><i class="fa-solid fa-cubes mr-1"></i> 方块</button>
+        </nav>
+    </header>
+
+    <main class="flex-1 relative bg-gray-100 overflow-hidden">
+        
+        <!-- 首页 -->
+        <div id="view-home" class="game-container active items-center justify-center p-6">
+            <div class="text-center max-w-5xl w-full">
+                <h1 class="text-5xl font-extrabold text-gray-800 mb-4">选择你的游戏</h1>
+                <p class="text-gray-500 mb-10">已修复24点算法与计算器逻辑</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div onclick="switchGame('shooter')" class="bg-white p-6 rounded-xl shadow hover:shadow-xl cursor-pointer border-l-4 border-red-500">
+                        <i class="fa-solid fa-crosshairs text-3xl text-red-500 mb-3"></i>
+                        <h3 class="font-bold text-lg">星际射击</h3>
+                    </div>
+                    <div onclick="switchGame('math24')" class="bg-white p-6 rounded-xl shadow hover:shadow-xl cursor-pointer border-l-4 border-blue-500">
+                        <i class="fa-solid fa-puzzle-piece text-3xl text-blue-500 mb-3"></i>
+                        <h3 class="font-bold text-lg">24点挑战</h3>
+                    </div>
+                    <div onclick="switchGame('calculator')" class="bg-white p-6 rounded-xl shadow hover:shadow-xl cursor-pointer border-l-4 border-green-500">
+                        <i class="fa-solid fa-calculator text-3xl text-green-500 mb-3"></i>
+                        <h3 class="font-bold text-lg">标准计算器</h3>
+                    </div>
+                    <div onclick="switchGame('voxel')" class="bg-white p-6 rounded-xl shadow hover:shadow-xl cursor-pointer border-l-4 border-yellow-500">
+                        <i class="fa-solid fa-cube text-3xl text-yellow-500 mb-3"></i>
+                        <h3 class="font-bold text-lg">方块世界</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 射击游戏 -->
+        <div id="view-shooter" class="game-container bg-gray-900">
+            <div class="absolute top-4 left-4 z-10 text-white pointer-events-none">
+                <div class="text-2xl font-bold">得分: <span id="shooter-score">0</span></div>
+                <div class="text-sm text-gray-400">生命: <span id="shooter-hp">3</span></div>
+            </div>
+            <div class="absolute bottom-4 right-4 z-10 flex space-x-2">
+                <button onclick="initShooter()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700">重开</button>
+                <button onclick="switchGame('home')" class="bg-gray-700 text-white px-4 py-2 rounded shadow hover:bg-gray-600">退出</button>
+            </div>
+            <canvas id="shooter-canvas"></canvas>
+        </div>
+
+        <!-- 24点游戏 -->
+        <div id="view-math24" class="game-container items-center justify-center bg-blue-50">
+            <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full text-center">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">24点挑战</h2>
+                <p class="text-gray-500 mb-6 text-sm">规则：点击两个数字和一个运算符，它们会合并成一个新数字。目标是最后只剩一张牌且为24。</p>
+                
+                <div class="h-12 bg-gray-100 rounded-lg mb-8 flex items-center justify-center text-xl font-mono text-gray-700 border border-gray-200 px-4">
+                    <span id="math-status">请选择第一个数字</span>
+                </div>
+
+                <div class="flex justify-center space-x-6 mb-10 min-h-[120px]" id="cards-container">
+                    <!-- 卡牌生成区 -->
+                </div>
+
+                <div class="grid grid-cols-4 gap-4 max-w-xs mx-auto mb-6">
+                    <button onclick="handleMathOp('+')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 py-3 rounded-lg font-bold text-xl transition">+</button>
+                    <button onclick="handleMathOp('-')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 py-3 rounded-lg font-bold text-xl transition">-</button>
+                    <button onclick="handleMathOp('*')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 py-3 rounded-lg font-bold text-xl transition">×</button>
+                    <button onclick="handleMathOp('/')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 py-3 rounded-lg font-bold text-xl transition">÷</button>
+                </div>
+
+                <div class="flex justify-center space-x-4">
+                    <button onclick="initMath24()" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-lg transition">新一局</button>
+                </div>
+                <div id="math-msg" class="mt-4 h-6 text-red-500 font-bold text-sm"></div>
+            </div>
+        </div>
+
+        <!-- 计算器 -->
+        <div id="view-calculator" class="game-container items-center justify-center bg-gray-200">
+            <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
+                <div class="bg-gray-800 p-6 text-right">
+                    <div id="calc-history" class="text-gray-400 text-sm h-6 overflow-hidden"></div>
+                    <div id="calc-display" class="text-5xl text-white font-light tracking-wider break-all">0</div>
+                </div>
+                <div class="p-4 grid grid-cols-4 gap-3">
+                    <button onclick="calcAction('C')" class="calc-btn col-span-2 bg-red-100 text-red-600 py-4 rounded-xl font-bold text-lg hover:bg-red-200">AC</button>
+                    <button onclick="calcAction('DEL')" class="calc-btn bg-gray-100 text-gray-600 py-4 rounded-xl font-bold text-lg hover:bg-gray-200"><i class="fa-solid fa-delete-left"></i></button>
+                    <button onclick="calcAction('/')" class="calc-btn bg-orange-100 text-orange-600 py-4 rounded-xl font-bold text-xl hover:bg-orange-200">÷</button>
+                    
+                    <button onclick="calcAction('7')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">7</button>
+                    <button onclick="calcAction('8')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">8</button>
+                    <button onclick="calcAction('9')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">9</button>
+                    <button onclick="calcAction('*')" class="calc-btn bg-orange-100 text-orange-600 py-4 rounded-xl font-bold text-xl hover:bg-orange-200">×</button>
+                    
+                    <button onclick="calcAction('4')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">4</button>
+                    <button onclick="calcAction('5')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">5</button>
+                    <button onclick="calcAction('6')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">6</button>
+                    <button onclick="calcAction('-')" class="calc-btn bg-orange-100 text-orange-600 py-4 rounded-xl font-bold text-xl hover:bg-orange-200">-</button>
+                    
+                    <button onclick="calcAction('1')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">1</button>
+                    <button onclick="calcAction('2')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">2</button>
+                    <button onclick="calcAction('3')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">3</button>
+                    <button onclick="calcAction('+')" class="calc-btn bg-orange-100 text-orange-600 py-4 rounded-xl font-bold text-xl hover:bg-orange-200">+</button>
+                    
+                    <button onclick="calcAction('0')" class="calc-btn col-span-2 bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">0</button>
+                    <button onclick="calcAction('.')" class="calc-btn bg-gray-50 text-gray-800 py-4 rounded-xl font-bold text-xl hover:bg-gray-100">.</button>
+                    <button onclick="calcAction('=')" class="calc-btn bg-indigo-600 text-white py-4 rounded-xl font-bold text-xl hover:bg-indigo-700 shadow-lg">=</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 方块世界 -->
+        <div id="view-voxel" class="game-container flex-col bg-sky-300">
+            <div class="bg-black/50 text-white p-2 flex justify-between items-center px-4 backdrop-blur-sm absolute top-0 w-full z-10">
+                <span class="font-bold text-sm"><i class="fa-solid fa-cube text-yellow-400 mr-2"></i>点击放置 / 右键移除</span>
+                <button onclick="switchGame('home')" class="text-xs bg-gray-600 px-2 py-1 rounded hover:bg-gray-500">退出</button>
+            </div>
+            <canvas id="voxel-canvas"></canvas>
+            <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur p-3 rounded-full shadow-xl flex space-x-3">
+                <div class="toolbar-item active bg-green-500" onclick="setBlock('grass')" title="草地"></div>
+                <div class="toolbar-item bg-yellow-700" onclick="setBlock('dirt')" title="泥土"></div>
+                <div class="toolbar-item bg-gray-500" onclick="setBlock('stone')" title="石头"></div>
+                <div class="toolbar-item bg-yellow-200" onclick="setBlock('wood')" title="木板"></div>
+                <div class="toolbar-item bg-red-500" onclick="setBlock('brick')" title="砖块"></div>
+                <div class="toolbar-item bg-blue-400" onclick="setBlock('water')" title="水"></div>
+                <div class="toolbar-item bg-white flex items-center justify-center border-2 border-red-500" onclick="setBlock('erase')" title="橡皮擦">
+                    <i class="fa-solid fa-eraser text-red-500 text-sm"></i>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- 全局路由 ---
+        let currentView = 'home';
+        function switchGame(id) {
+            if(currentView === 'shooter') stopShooter();
+            document.querySelectorAll('.game-container').forEach(el => el.classList.remove('active'));
+            document.getElementById(`view-${id}`).classList.add('active');
+            currentView = id;
+            
+            if(id === 'shooter') initShooter();
+            if(id === 'math24') initMath24();
+            if(id === 'voxel') initVoxel();
+        }
+
+        // --- 1. 射击游戏 (保持不变，略作优化) ---
+        const sCanvas = document.getElementById('shooter-canvas');
+        const sCtx = sCanvas.getContext('2d');
+        let sReqId;
+        let sState = { player:{x:0,y:0,w:40,h:40}, bullets:[], enemies:[], score:0, hp:3, lastSpawn:0, running:false };
+
+        function resizeS() {
+            sCanvas.width = sCanvas.parentElement.clientWidth;
+            sCanvas.height = sCanvas.parentElement.clientHeight;
+            sState.player.y = sCanvas.height - 60;
+        }
+        function initShooter() {
+            resizeS();
+            sState.bullets=[]; sState.enemies=[]; sState.score=0; sState.hp=3; sState.running=true;
+            sCanvas.onmousemove = e => {
+                const r = sCanvas.getBoundingClientRect();
+                sState.player.x = e.clientX - r.left - 20;
+            };
+            sCanvas.onclick = () => {
+                if(!sState.running) return;
+                sState.bullets.push({x:sState.player.x+18, y:sState.player.y, w:4, h:10, spd:10});
+            };
+            if(sReqId) cancelAnimationFrame(sReqId);
+            sLoop();
+        }
+        function stopShooter() { sState.running=false; if(sReqId) cancelAnimationFrame(sReqId); }
+        function sLoop(t) {
+            if(!sState.running) return;
+            sCtx.fillStyle='#1a1a2e'; sCtx.fillRect(0,0,sCanvas.width,sCanvas.height);
+            
+            // Spawn
+            if(t-sState.lastSpawn > 800) {
+                sState.enemies.push({x:Math.random()*(sCanvas.width-30), y:-30, w:30, h:30, spd:2+Math.random()*2});
+                sState.lastSpawn=t;
+            }
+            
+            // Bullets
+            sCtx.fillStyle='#ef4444';
+            for(let i=sState.bullets.length-1; i>=0; i--){
+                let b=sState.bullets[i]; b.y-=b.spd;
+                sCtx.fillRect(b.x,b.y,b.w,b.h);
+                if(b.y<0) sState.bullets.splice(i,1);
+            }
+            
+            // Enemies & Collision
+            for(let i=sState.enemies.length-1; i>=0; i--){
+                let e=sState.enemies[i]; e.y+=e.spd;
+                sCtx.fillStyle='#10b981'; sCtx.fillRect(e.x,e.y,e.w,e.h);
+                
+                // Hit Bullet
+                for(let j=sState.bullets.length-1; j>=0; j--){
+                    let b=sState.bullets[j];
+                    if(b.x<e.x+e.w && b.x+b.w>e.x && b.y<e.y+e.h && b.y+b.h>e.y){
+                        sState.enemies.splice(i,1); sState.bullets.splice(j,1);
+                        sState.score+=10; document.getElementById('shooter-score').innerText=sState.score;
+                        break;
+                    }
+                }
+                
+                // Hit Player
+                if(e.x<sState.player.x+sState.player.w && e.x+e.w>sState.player.x && e.y<sState.player.y+sState.player.h && e.y+e.h>sState.player.y){
+                    sState.enemies.splice(i,1); sState.hp--;
+                    document.getElementById('shooter-hp').innerText=sState.hp;
+                    if(sState.hp<=0){ sState.running=false; alert('游戏结束! 得分:'+sState.score); }
+                }
+                if(e.y>sCanvas.height) sState.enemies.splice(i,1);
+            }
+            
+            // Player
+            sCtx.fillStyle='#3b82f6';
+            sCtx.beginPath(); sCtx.moveTo(sState.player.x+20,sState.player.y); sCtx.lineTo(sState.player.x+40,sState.player.y+40); sCtx.lineTo(sState.player.x,sState.player.y+40); sCtx.fill();
+            
+            sReqId=requestAnimationFrame(sLoop);
+        }
+
+        // --- 2. 24点游戏 (完全重写) ---
+        let m24Cards = []; // {id, val}
+        let m24Selected = null; // id of first selected card
+        let m24WaitingForSecond = false;
+        let m24CurrentOp = null;
+
+        // 生成有解的24点题目
+        function generateSolvable24() {
+            // 简单的暴力法：随机生成直到找到有解的
+            while(true) {
+                let nums = [Math.floor(Math.random()*10)+1, Math.floor(Math.random()*10)+1, Math.floor(Math.random()*10)+1, Math.floor(Math.random()*10)+1];
+                if(checkSolvable(nums)) return nums;
+            }
+        }
+
+        // 检查是否有解 (递归暴力枚举)
+        function checkSolvable(nums) {
+            if(nums.length === 1) return Math.abs(nums - 24) < 0.0001;
+            
+            for(let i=0; i<nums.length; i++) {
+                for(let j=0; j<nums.length; j++) {
+                    if(i===j) continue;
+                    let rest = nums.filter((_, idx) => idx!==i && idx!==j);
+                    let a=nums[i], b=nums[j];
+                    // 尝试四种运算
+                    if(checkSolvable([...rest, a+b])) return true;
+                    if(checkSolvable([...rest, a-b])) return true;
+                    if(checkSolvable([...rest, a*b])) return true;
+                    if(b!==0 && checkSolvable([...rest, a/b])) return true;
+                }
+            }
+            return false;
+        }
+
+        function initMath24() {
+            const nums = generateSolvable24();
+            m24Cards = nums.map((v, i) => ({id: i, val: v}));
+            m24Selected = null;
+            m24WaitingForSecond = false;
+            m24CurrentOp = null;
+            renderCards();
+            updateStatus("请选择第一个数字");
+            document.getElementById('math-msg').innerText = "";
+        }
+
+        function renderCards() {
+            const container = document.getElementById('cards-container');
+            container.innerHTML = '';
+            m24Cards.forEach(c => {
+                const div = document.createElement('div');
+                div.className = `card ${m24Selected === c.id ? 'selected' : ''}`;
+                div.innerText = Number.isInteger(c.val) ? c.val : c.val.toFixed(2);
+                div.onclick = () => handleCardClick(c.id);
+                container.appendChild(div);
+            });
+        }
+
+        function updateStatus(text) {
+            document.getElementById('math-status').innerText = text;
+        }
+
+        function handleCardClick(id) {
+            if(m24WaitingForSecond) {
+                // 这是第二个数字
+                if(id === m24Selected) {
+                    updateStatus("不能选择同一个数字");
+                    return;
+                }
+                executeCalc(id);
+            } else {
+                // 这是第一个数字
+                m24Selected = id;
+                m24WaitingForSecond = true;
+                renderCards();
+                updateStatus("请选择运算符 (+ - × ÷)");
+            }
+        }
+
+        function handleMathOp(op) {
+            if(!m24WaitingForSecond) {
+                document.getElementById('math-msg').innerText = "请先选择一个数字";
+                return;
+            }
+            m24CurrentOp = op;
+            updateStatus(`已选 ${op}，请选择第二个数字`);
+        }
+
+        function executeCalc(secondId) {
+            const c1 = m24Cards.find(c => c.id === m24Selected);
+            const c2 = m24Cards.find(c => c.id === secondId);
+            let res = 0;
+            let valid = true;
+
+            switch(m24CurrentOp) {
+                case '+': res = c1.val + c2.val; break;
+                case '-': res = c1.val - c2.val; break;
+                case '*': res = c1.val * c2.val; break;
+                case '/': 
+                    if(c2.val === 0) { valid=false; document.getElementById('math-msg').innerText="除数不能为0"; }
+                    else res = c1.val / c2.val; 
+                    break;
+            }
+
+            if(!valid) return;
+
+            // 移除旧卡片，添加新卡片
+            m24Cards = m24Cards.filter(c => c.id !== m24Selected && c.id !== secondId);
+            m24Cards.push({id: Date.now(), val: res});
+            
+            // 重置状态
+            m24Selected = null;
+            m24WaitingForSecond = false;
+            m24CurrentOp = null;
+            
+            renderCards();
+            
+            // 检查胜利
+            if(m24Cards.length === 1) {
+                if(Math.abs(m24Cards.val - 24) < 0.001) {
+                    updateStatus("恭喜！成功算出24点！");
+                    document.getElementById('math-msg').innerText = "🎉 胜利！";
+                    document.getElementById('math-msg').className = "mt-4 h-6 text-green-600 font-bold text-sm";
+                } else {
+                    updateStatus(`结果是 ${m24Cards.val.toFixed(2)}，不是24。请重试。`);
+                    document.getElementById('math-msg').innerText = "❌ 失败，请重新开始";
+                }
+            } else {
+                updateStatus("请选择第一个数字");
+            }
+        }
+
+        // --- 3. 计算器 (修复版) ---
+        let cVal = '0';
+        let cPrev = null;
+        let cOp = null;
+        let cNewStart = false;
+
+        function updateCDisplay() {
+            document.getElementById('calc-display').innerText = cVal;
+        }
+
+        function calcAction(key) {
+            // 数字
+            if(!isNaN(parseInt(key)) || key === '.') {
+                if(cNewStart) {
+                    cVal = key === '.' ? '0.' : key;
+                    cNewStart = false;
+                } else {
+                    if(key === '.' && cVal.includes('.')) return;
+                    cVal = cVal === '0' ? key : cVal + key;
+                }
+            }
+            // 运算符
+            else if(['+','-','*','/'].includes(key)) {
+                if(cPrev !== null && !cNewStart) {
+                    calculate();
+                }
+                cPrev = parseFloat(cVal);
+                cOp = key;
+                cNewStart = true;
+                document.getElementById('calc-history').innerText = `${cPrev} ${key}`;
+            }
+            // 等于
+            else if(key === '=') {
+                if(cPrev !== null && cOp) {
+                    calculate();
+                    cPrev = null;
+                    cOp = null;
+                    document.getElementById('calc-history').innerText = '';
+                }
+            }
+            // 清除
+            else if(key === 'C') {
+                cVal = '0'; cPrev = null; cOp = null; cNewStart = false;
+                document.getElementById('calc-history').innerText = '';
+            }
+            // 删除
+            else if(key === 'DEL') {
+                if(cNewStart) return;
+                cVal = cVal.slice(0,-1);
+                if(cVal === '' || cVal === '-') cVal = '0';
+            }
+            updateCDisplay();
+        }
+
+        function calculate() {
+            const curr = parseFloat(cVal);
+            let res = 0;
+            switch(cOp) {
+                case '+': res = cPrev + curr; break;
+                case '-': res = cPrev - curr; break;
+                case '*': res = cPrev * curr; break;
+                case '/': res = cPrev / curr; break;
+            }
+            // 精度处理
+            res = Math.round(res * 100000000) / 100000000;
+            cVal = res.toString();
+            cNewStart = true;
+        }
+
+        // 键盘支持
+        document.addEventListener('keydown', (e) => {
+            if(currentView !== 'calculator') return;
+            const k = e.key;
+            if(!isNaN(parseInt(k))) calcAction(k);
+            if(k==='+') calcAction('+');
+            if(k==='-') calcAction('-');
+            if(k==='*') calcAction('*');
+            if(k==='/') calcAction('/');
+            if(k==='Enter' || k==='=') calcAction('=');
+            if(k==='Backspace') calcAction('DEL');
+            if(k==='Escape') calcAction('C');
+            if(k==='.') calcAction('.');
+        });
+
+        // --- 4. 方块世界 (保持不变) ---
+        const vCanvas = document.getElementById('voxel-canvas');
+        const vCtx = vCanvas.getContext('2d');
+        const GS = 40;
+        let vGrid = [];
+        let vBlock = 'grass';
+        const COLORS = {'grass':'#4ade80','dirt':'#854d0e','stone':'#6b7280','wood':'#fde047','brick':'#ef4444','water':'#60a5fa'};
+
+        function initVoxel() {
+            vCanvas.width = vCanvas.parentElement.clientWidth;
+            vCanvas.height = vCanvas.parentElement.clientHeight;
+            const cols = Math.ceil(vCanvas.width/GS);
+            const rows = Math.ceil(vCanvas.height/GS);
+            
+            if(vGrid.length===0) {
+                for(let r=0; r<rows; r++){
+                    let row=[];
+                    for(let c=0; c<cols; c++){
+                        if(r>rows-4) row.push('stone');
+                        else if(r>rows-6) row.push('dirt');
+                        else if(r===rows-6) row.push('grass');
+                        else row.push('empty');
+                    }
+                    vGrid.push(row);
+                }
+            }
+            drawVoxel();
+            
+            vCanvas.onmousedown = (e) => {
+                const r = vCanvas.getBoundingClientRect();
+                const cIdx = Math.floor((e.clientX-r.left)/GS);
+                const rIdx = Math.floor((e.clientY-r.top)/GS);
+                if(rIdx>=0 && rIdx<vGrid.length && cIdx>=0 && cIdx<Math.ceil(vCanvas.width/GS)){
+                    if(e.button === 2 || vBlock==='erase') vGrid[rIdx][cIdx]='empty';
+                    else vGrid[rIdx][cIdx]=vBlock;
+                    drawVoxel();
+                }
+            };
+            vCanvas.oncontextmenu = e => e.preventDefault();
+        }
+
+        function drawVoxel() {
+            vCtx.clearRect(0,0,vCanvas.width,vCanvas.height);
+            for(let r=0; r<vGrid.length; r++){
+                for(let c=0; c<vGrid[r].length; c++){
+                    const t = vGrid[r][c];
+                    if(t!=='empty'){
+                        vCtx.fillStyle=COLORS[t];
+                        vCtx.fillRect(c*GS, r*GS, GS, GS);
+                        vCtx.strokeStyle='rgba(0,0,0,0.1)';
+                        vCtx.strokeRect(c*GS, r*GS, GS, GS);
+                    }
+                }
+            }
+        }
+        window.setBlock = (t) => {
+            vBlock=t;
+            document.querySelectorAll('.toolbar-item').forEach(e=>e.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        // 初始化
+        window.onload = () => {
+            // 预加载一些资源或初始化
+        };
+    </script>
+</body>
+</html>
